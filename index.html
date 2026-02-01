@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>paypal串接測試</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <style>
+        body { 
+            font-family: 'Noto Sans TC', sans-serif; 
+            background-color: #F7F8FA; /* 亞麻白 */
+            color: #41474D; /* 深岩灰 */
+        }
+        .bg-cool-gray { background-color: #E1E4E8; } /* 灰冷調 */
+        .bg-woven-blue { background-color: #A9B4BC; } /* 織物藍 */
+        .text-rock-gray { color: #41474D; } /* 深岩灰 */
+        .border-cool-gray { border-color: #E1E4E8; }
+        
+        .product-card {
+            background-color: #E1E4E8;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+        .product-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05);
+        }
+        .btn-buy {
+            background-color: #A9B4BC;
+            color: #F7F8FA;
+            transition: all 0.2s;
+        }
+        .btn-buy:hover {
+            background-color: #41474D;
+        }
+        .btn-buy:active {
+            transform: scale(0.95);
+        }
+        /* 隱藏捲動條 */
+        ::-webkit-scrollbar { width: 0px; }
+    </style>
+</head>
+<body class="min-h-screen">
+
+    <!-- 頂部導覽 -->
+    <header class="sticky top-0 z-50 bg-[#F7F8FA]/90 backdrop-blur-md border-b border-cool-gray">
+        <div class="max-w-md mx-auto px-6 h-16 flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+                <div class="w-8 h-8 bg-woven-blue rounded-full flex items-center justify-center shadow-sm">
+                    <i data-lucide="credit-card" class="w-4 h-4 text-[#F7F8FA]"></i>
+                </div>
+                <h1 class="text-sm font-bold tracking-widest">paypal串接測試</h1>
+            </div>
+            <i data-lucide="menu" class="w-5 h-5 opacity-20"></i>
+        </div>
+    </header>
+
+    <main class="max-w-md mx-auto px-4 pt-10 pb-20">
+        <!-- 商品一覽 標題 -->
+        <div class="px-2 mb-8">
+            <h2 class="text-2xl font-bold tracking-tight">商品一覽</h2>
+            <div class="w-8 h-1 bg-woven-blue mt-2 rounded-full"></div>
+        </div>
+
+        <!-- 商品網格 -->
+        <div id="product-container" class="grid grid-cols-2 gap-4">
+            <!-- 骨架屏載入中 -->
+            <div class="animate-pulse bg-cool-gray rounded-[2rem] h-64"></div>
+            <div class="animate-pulse bg-cool-gray rounded-[2rem] h-64"></div>
+        </div>
+    </main>
+
+    <!-- 結帳 Modal -->
+    <div id="payment-modal" class="fixed inset-0 bg-rock-gray/60 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-6 hidden backdrop-blur-sm">
+        <div class="bg-[#F7F8FA] rounded-t-[2.5rem] sm:rounded-3xl w-full max-w-sm p-10 text-center shadow-2xl transition-all">
+            <div class="w-12 h-1 bg-cool-gray rounded-full mx-auto mb-8"></div>
+            
+            <div id="order-summary" class="text-left mb-8 space-y-4">
+                <!-- 由 JS 填充 -->
+            </div>
+            
+            <div id="paypal-button-container" class="min-h-[150px]"></div>
+            
+            <button onclick="closeModal()" class="mt-6 text-xs text-rock-gray/40 hover:text-rock-gray transition-colors uppercase tracking-[0.2em]">
+                Back to Shop
+            </button>
+        </div>
+    </div>
+
+    <script>
+        let GAS_URL = ""; 
+        let products = [];
+        let config = {};
+        let currentItem = null;
+        let isPayPalLoaded = false;
+
+        async function initStore() {
+            try {
+                // 1. 讀取本地設定
+                const configResp = await fetch('site-config.json');
+                const localConfig = await configResp.json();
+                GAS_URL = localConfig.gas_url;
+
+                // 2. 獲取商品與 PayPal Client ID
+                const response = await fetch(GAS_URL);
+                const data = await response.json();
+                
+                products = data.products;
+                config = data.config;
+
+                // 3. 渲染畫面
+                renderProducts(products);
+
+                // 4. 動態載入 PayPal SDK
+                if (config.paypal_client_id) {
+                    loadPayPalSDK(config.paypal_client_id);
+                }
+            } catch (error) {
+                console.error("Initialization failed:", error);
+                document.getElementById('product-container').innerHTML = `
+                    <div class="col-span-2 py-20 text-center">
+                        <i data-lucide="alert-circle" class="w-8 h-8 mx-auto mb-2 opacity-10"></i>
+                        <p class="text-xs opacity-40 italic">無法獲取商品列表，請檢查 GAS 設定</p>
+                    </div>
+                `;
+                lucide.createIcons();
+            }
+        }
+
+        function loadPayPalSDK(clientId) {
+            const script = document.createElement('script');
+            script.src = `https://www.paypal.com/sdk/js?client-id=${clientId}&currency=TWD`;
+            script.onload = () => { isPayPalLoaded = true; };
+            document.head.appendChild(script);
+        }
+
+        function renderProducts(items) {
+            const container = document.getElementById('product-container');
+            container.innerHTML = '';
+            items.forEach(item => {
+                if(item.status !== 'active') return;
+                const card = document.createElement('div');
+                card.className = "product-card rounded-[2rem] p-4 flex flex-col border border-white/20";
+                card.innerHTML = `
+                    <div class="aspect-square bg-[#F7F8FA]/60 rounded-2xl flex items-center justify-center mb-4 overflow-hidden shadow-inner">
+                        ${item.images ? `<img src="${item.images}" class="w-full h-full object-cover">` : `<i data-lucide="package" class="w-8 h-8 text-rock-gray/10"></i>`}
+                    </div>
+                    <div class="flex-grow px-1">
+                        <h3 class="text-[10px] font-medium opacity-40 mb-1 uppercase tracking-wider">${item.category}</h3>
+                        <p class="text-sm font-bold mb-3 h-10 overflow-hidden line-clamp-2">${item.name}</p>
+                        <div class="flex items-end justify-between mb-4">
+                            <span class="text-base font-black tracking-tighter">NT$ ${item.price}</span>
+                            <span class="text-[9px] opacity-20 pb-0.5">庫存: ${item.stock}</span>
+                        </div>
+                    </div>
+                    <button onclick="openCheckout('${item.id}')" 
+                        ${item.stock <= 0 ? 'disabled class="w-full py-3 bg-white/40 text-rock-gray/20 text-[10px] font-bold rounded-xl cursor-not-allowed"' : 'class="w-full py-3 btn-buy text-[10px] font-bold rounded-xl uppercase tracking-widest shadow-sm"'} >
+                        ${item.stock <= 0 ? '已售罄' : '立即購買'}
+                    </button>
+                `;
+                container.appendChild(card);
+            });
+            lucide.createIcons();
+        }
+
+        function openCheckout(id) {
+            if (!isPayPalLoaded) { alert("PayPal 模組載入中，請稍候..."); return; }
+            currentItem = products.find(p => String(p.id) === String(id));
+            
+            document.getElementById('order-summary').innerHTML = `
+                <div>
+                    <p class="text-[10px] uppercase tracking-widest opacity-40 mb-1">訂單確認單</p>
+                    <h4 class="text-lg font-bold">${currentItem.name}</h4>
+                </div>
+                <div class="pt-4 border-t border-cool-gray flex justify-between items-end">
+                    <span class="text-xs opacity-50 uppercase tracking-widest">應付總額</span>
+                    <span class="text-2xl font-black">NT$ ${currentItem.price}</span>
+                </div>
+            `;
+            
+            document.getElementById('payment-modal').classList.remove('hidden');
+            document.getElementById('paypal-button-container').innerHTML = '';
+            
+            paypal.Buttons({
+                style: { layout: 'vertical', color: 'black', shape: 'rect', label: 'paypal' },
+                createOrder: (data, actions) => {
+                    return actions.order.create({ purchase_units: [{ amount: { value: currentItem.price.toString(), currency_code: 'TWD' } }] });
+                },
+                onApprove: async (data, actions) => {
+                    await actions.order.capture();
+                    document.getElementById('paypal-button-container').innerHTML = '<div class="py-10 text-woven-blue font-bold animate-pulse text-sm">正在同步庫存資料...</div>';
+                    await fetch(GAS_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify({ id: currentItem.id }) });
+                    location.reload();
+                }
+            }).render('#paypal-button-container');
+        }
+
+        function closeModal() { document.getElementById('payment-modal').classList.add('hidden'); }
+
+        window.onload = initStore;
+    </script>
+</body>
+</html>
