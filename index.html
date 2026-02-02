@@ -3,42 +3,37 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>動態商店 | PayPal 穩定版</title>
+    <title>商店測試 | 修正版</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
-    <!-- 暫時不放 PayPal Script，由 JS 動態載入 -->
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700&display=swap" rel="stylesheet">
     <style>
         body { font-family: 'Noto Sans TC', sans-serif; background-color: #F7F8FA; color: #41474D; }
         .product-card { background-color: #E1E4E8; border-radius: 2rem; padding: 1.5rem; }
-        #payment-modal { display: none; position: fixed; inset: 0; background-color: rgba(65, 71, 77, 0.85); z-index: 100; backdrop-filter: blur(8px); align-items: center; justify-content: center; padding: 16px; }
+        #payment-modal { display: none; position: fixed; inset: 0; background-color: rgba(0,0,0,0.7); z-index: 100; backdrop-filter: blur(8px); align-items: center; justify-content: center; padding: 16px; }
         #payment-modal.active { display: flex; }
-        .modal-content { background-color: #F7F8FA; width: 100%; max-width: 420px; border-radius: 32px; padding: 32px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); }
+        .modal-content { background-color: #F7F8FA; width: 100%; max-width: 400px; border-radius: 32px; padding: 32px; }
     </style>
 </head>
 <body>
 
     <header class="p-6 max-w-md mx-auto flex justify-between items-center">
-        <h1 class="text-xl font-bold">結帳測試</h1>
-        <div id="status-tag" class="text-[9px] px-2 py-1 bg-amber-100 text-amber-600 rounded-full font-bold uppercase">Connecting</div>
+        <h1 class="text-xl font-bold">訂單測試</h1>
+        <div id="status-tag" class="text-[9px] px-2 py-1 bg-amber-100 text-amber-600 rounded-full font-bold">Connecting</div>
     </header>
 
     <main class="max-w-md mx-auto px-4 pb-20">
-        <div id="product-container" class="grid grid-cols-2 gap-4">
-            <p class="col-span-2 text-center py-20 opacity-30">正在同步雲端資料...</p>
-        </div>
+        <div id="product-container" class="grid grid-cols-2 gap-4"></div>
     </main>
 
     <div id="payment-modal" onclick="if(event.target === this) closeModal()">
         <div class="modal-content" onclick="event.stopPropagation()">
-            <div id="order-summary" class="mb-6 text-center border-b pb-4">
+            <div class="mb-6 text-center border-b pb-4">
                 <h3 class="text-lg font-bold" id="order-title"></h3>
                 <p class="text-3xl font-black mt-2" id="order-price"></p>
             </div>
-            
-            <div id="paypal-button-container" class="w-full min-h-[300px] flex flex-col gap-3"></div>
-            
-            <button onclick="closeModal()" class="w-full mt-6 py-2 text-xs font-bold opacity-30 tracking-widest uppercase">返回</button>
+            <div id="paypal-button-container" class="w-full min-h-[300px]"></div>
+            <button onclick="closeModal()" class="w-full mt-6 py-2 text-xs font-bold opacity-30">返回</button>
         </div>
     </div>
 
@@ -46,46 +41,33 @@
         let API_GATEWAY = ""; 
         let products = [];
         let config = {};
-        let isSDKLoaded = false;
 
         async function initStore() {
             try {
-                // 1. 取得 Cloudflare 網址
                 const configResp = await fetch('site-config.json');
                 const localConfig = await configResp.json();
                 API_GATEWAY = localConfig.gas_url.replace(/\/+$/, "");
 
-                // 2. 從 GAS 取得商品與 PayPal Client ID (透過 Cloudflare)
                 const response = await fetch(`${API_GATEWAY}/api/gas`);
                 const data = await response.json();
-                
                 products = data.products || [];
                 config = data.config || {};
                 renderProducts(products);
 
-                // 3. 動態載入 PayPal SDK
                 if (config.paypal_client_id) {
                     await loadPayPalSDK(config.paypal_client_id);
                     document.getElementById('status-tag').innerText = "Ready";
-                    document.getElementById('status-tag').className = "text-[9px] px-2 py-1 bg-green-100 text-green-600 rounded-full font-bold uppercase";
-                } else {
-                    throw new Error("試算表中找不到 Client ID");
+                    document.getElementById('status-tag').className = "text-[9px] px-2 py-1 bg-green-100 text-green-600 rounded-full font-bold";
                 }
-
-            } catch (error) {
-                console.error("Initialization Failed:", error);
-                document.getElementById('status-tag').innerText = "Error";
-                document.getElementById('product-container').innerHTML = `<p class="col-span-2 text-center py-20 text-red-400">連線失敗: ${error.message}</p>`;
-            }
+            } catch (error) { console.error(error); }
         }
 
         function loadPayPalSDK(clientId) {
-            return new Promise((resolve, reject) => {
-                if (window.paypal) return resolve();
+            return new Promise((resolve) => {
                 const script = document.createElement('script');
-                script.src = `https://www.paypal.com/sdk/js?client-id=${clientId}&currency=TWD`;
-                script.onload = () => { isSDKLoaded = true; resolve(); };
-                script.onerror = () => reject(new Error("PayPal SDK 載入失敗"));
+                // 強制加入商店位置和環境 (sandbox 測試時)
+                script.src = `https://www.paypal.com/sdk/js?client-id=${clientId}&currency=TWD&intent=capture`;
+                script.onload = resolve;
                 document.head.appendChild(script);
             });
         }
@@ -95,59 +77,59 @@
             container.innerHTML = '';
             items.forEach(item => {
                 if(item.status !== 'active') return;
-                container.innerHTML += `
-                    <div class="product-card flex flex-col shadow-sm">
-                        <p class="text-sm font-bold mb-1 truncate">${item.name}</p>
-                        <p class="text-lg font-black mb-4 tracking-tighter">NT$ ${item.price}</p>
-                        <button onclick="openCheckout('${item.id}')" class="w-full py-3 bg-[#A9B4BC] text-white text-[10px] font-bold rounded-xl uppercase tracking-widest active:scale-95 transition-transform">立即購買</button>
-                    </div>`;
+                container.innerHTML += `<div class="product-card flex flex-col shadow-sm">
+                    <p class="text-sm font-bold mb-1 truncate">${item.name}</p>
+                    <p class="text-lg font-black mb-4">NT$ ${item.price}</p>
+                    <button onclick="openCheckout('${item.id}')" class="w-full py-3 bg-[#A9B4BC] text-white text-[10px] font-bold rounded-xl uppercase">立即購買</button>
+                </div>`;
             });
             lucide.createIcons();
         }
 
         async function openCheckout(id) {
-            if (!isSDKLoaded) return alert("支付組件載入中，請稍候...");
-            
             const currentItem = products.find(p => String(p.id) === String(id));
             document.getElementById('order-title').innerText = currentItem.name;
             document.getElementById('order-price').innerText = `NT$ ${currentItem.price}`;
             document.getElementById('payment-modal').classList.add('active');
-            
-            const btnContainer = document.getElementById('paypal-button-container');
-            btnContainer.innerHTML = '';
+            document.getElementById('paypal-button-container').innerHTML = '';
 
-            // 使用標準 Buttons 介面
             paypal.Buttons({
                 style: { layout: 'vertical', color: 'black', shape: 'rect' },
-                
-                // 1. 呼叫 Cloudflare 建立訂單 (隱藏 Secret)
                 createOrder: async () => {
-                    const resp = await fetch(`${API_GATEWAY}/api/paypal/create`, {
-                        method: "POST",
-                        body: JSON.stringify({ price: currentItem.price, name: currentItem.name })
-                    });
-                    const order = await resp.json();
-                    return order.id;
+                    try {
+                        const resp = await fetch(`${API_GATEWAY}/api/paypal/create`, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ price: currentItem.price, name: currentItem.name })
+                        });
+                        const resData = await resp.json();
+                        if (resData.error) {
+                            console.error("Order Creation Error:", resData);
+                            alert("建立訂單失敗，請看控制台");
+                            return null;
+                        }
+                        return resData.id; // 必須回傳這個字串 ID
+                    } catch (err) {
+                        console.error(err);
+                        return null;
+                    }
                 },
-
-                // 2. 付款成功後，呼叫 Cloudflare 捕獲款項並通知 GAS
                 onApprove: async (data) => {
                     const resp = await fetch(`${API_GATEWAY}/api/paypal/capture`, {
                         method: "POST",
+                        headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({ orderID: data.orderID })
                     });
-                    const details = await resp.json();
-                    
-                    if (details.status === "COMPLETED") {
-                        btnContainer.innerHTML = '<div class="text-center font-bold text-green-600 py-10">付款成功！</div>';
+                    const result = await resp.json();
+                    if (result.status === "COMPLETED") {
+                        alert("付款成功！");
                         await fetch(`${API_GATEWAY}/api/gas`, { method: 'POST', body: JSON.stringify({ id: currentItem.id }) });
-                        setTimeout(() => location.reload(), 2000);
+                        location.reload();
                     }
                 },
-
                 onError: (err) => {
-                    console.error("PayPal 錯誤:", err);
-                    btnContainer.innerHTML = `<p class="text-red-500 text-xs text-center">支付過程出錯</p>`;
+                    console.error("PayPal SDK Error:", err);
+                    alert("PayPal 啟動失敗，請確認是否為測試帳號或 Client ID 是否正確");
                 }
             }).render('#paypal-button-container');
         }
