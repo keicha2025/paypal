@@ -13,14 +13,14 @@
         .product-card { background-color: #E1E4E8; border-radius: 2rem; padding: 1.25rem; }
         #payment-modal { display: none; position: fixed; inset: 0; background-color: rgba(65, 71, 77, 0.85); z-index: 100; backdrop-filter: blur(8px); align-items: center; justify-content: center; padding: 16px; }
         #payment-modal.active { display: flex; }
-        .modal-content { background-color: #F7F8FA; width: 100%; max-width: 400px; border-radius: 32px; padding: 32px; }
+        .modal-content { background-color: #F7F8FA; width: 100%; max-width: 400px; border-radius: 32px; padding: 32px; position: relative; }
     </style>
 </head>
 <body>
 
     <header class="p-6 max-w-md mx-auto flex justify-between items-center">
         <h1 class="text-xl font-bold">結帳測試</h1>
-        <div id="sdk-status" class="text-[9px] px-2 py-1 bg-amber-100 text-amber-600 rounded-full font-bold uppercase">SDK Connecting</div>
+        <div id="sdk-status" class="text-[9px] px-2 py-1 bg-amber-100 text-amber-600 rounded-full font-bold">SDK Connecting</div>
     </header>
 
     <main class="max-w-md mx-auto px-4 pb-20">
@@ -34,9 +34,9 @@
                 <p class="text-3xl font-black mt-2" id="order-price"></p>
             </div>
             
-            <div id="paypal-button-container" class="w-full min-h-[200px]"></div>
+            <div id="paypal-button-container" class="w-full min-h-[300px]"></div>
             
-            <button onclick="closeModal()" class="w-full mt-6 py-2 text-xs font-bold opacity-30 tracking-widest uppercase">取消</button>
+            <button onclick="closeModal()" class="w-full mt-6 py-2 text-xs font-bold opacity-30 uppercase tracking-widest">取消</button>
         </div>
     </div>
 
@@ -67,7 +67,7 @@
                 });
 
                 document.getElementById('sdk-status').innerText = "SDK Ready";
-                document.getElementById('sdk-status').className = "text-[9px] px-2 py-1 bg-green-100 text-green-600 rounded-full font-bold uppercase";
+                document.getElementById('sdk-status').className = "text-[9px] px-2 py-1 bg-green-100 text-green-600 rounded-full font-bold";
                 document.querySelectorAll('.buy-btn').forEach(btn => btn.disabled = false);
 
             } catch (error) {
@@ -82,8 +82,8 @@
             items.forEach(item => {
                 if(item.status !== 'active') return;
                 container.innerHTML += `
-                    <div class="product-card flex flex-col shadow-sm">
-                        <p class="text-sm font-bold mb-1 truncate">${item.name}</p>
+                    <div class="product-card flex flex-col">
+                        <p class="text-sm font-bold truncate">${item.name}</p>
                         <p class="text-lg font-black mb-4">NT$ ${item.price}</p>
                         <button onclick="openCheckout('${item.id}')" disabled class="buy-btn w-full py-3 bg-[#A9B4BC] text-white text-[10px] font-bold rounded-xl uppercase">立即購買</button>
                     </div>`;
@@ -99,47 +99,53 @@
             document.getElementById('payment-modal').classList.add('active');
             
             const btnContainer = document.getElementById('paypal-button-container');
-            btnContainer.innerHTML = '<div class="text-center py-10 opacity-30 text-xs animate-pulse">正在加載結帳按鈕...</div>';
+            btnContainer.innerHTML = '<div class="text-center py-10 opacity-30 text-xs animate-pulse">正在生成支付會話...</div>';
 
             try {
-                // 【核心修正】: 如果高級組件不可用，使用通用渲染器
-                let checkoutComponent;
+                // 【核心相容邏輯】：
+                // 如果高級函數不存在，就使用你日誌中顯示存在的 createPayPalOneTimePaymentSession
                 
                 if (typeof paypalInstance.paypalPayments === 'function') {
-                    checkoutComponent = await paypalInstance.paypalPayments();
-                } else {
-                    // 備案：手動指定載入 paypal-payments 組件
-                    // 這解決了 "paypalPayments is not a function" 的問題
-                    checkoutComponent = await paypalInstance.findEligibleMethods().then(methods => {
-                        return paypalInstance.paypalPayments(); 
+                    // 高級整合模式 (PPCP)
+                    const payments = await paypalInstance.paypalPayments();
+                    btnContainer.innerHTML = '';
+                    await payments.render('#paypal-button-container', {
+                        createOrder: (data, actions) => actions.order.create({ purchase_units: [{ amount: { value: currentItem.price.toString(), currency_code: 'TWD' } }] }),
+                        onApprove: onApproveAction
                     });
+                } 
+                else if (typeof paypalInstance.createPayPalOneTimePaymentSession === 'function') {
+                    // 標準整合模式 (你的 Sandbox 帳號目前屬於此類)
+                    console.log("正在使用標準會話模式渲染...");
+                    const session = await paypalInstance.createPayPalOneTimePaymentSession({
+                        purchase_units: [{ 
+                            amount: { value: currentItem.price.toString(), currency_code: 'TWD' },
+                            description: currentItem.name
+                        }]
+                    });
+                    
+                    btnContainer.innerHTML = '';
+                    // 在 v6 標準模式下，session 本身就具備 render 方法
+                    await session.render('#paypal-button-container', {
+                        onApprove: onApproveAction,
+                        onError: (err) => { btnContainer.innerHTML = `<p class="text-red-500 text-[10px]">支付錯誤: ${err.message}</p>`; }
+                    });
+                } else {
+                    throw new Error("此 Sandbox 帳號不支援 v6 支付組件。");
                 }
 
-                btnContainer.innerHTML = ''; 
-                
-                await checkoutComponent.render('#paypal-button-container', {
-                    createOrder: (data, actions) => {
-                        return actions.order.create({
-                            purchase_units: [{ amount: { value: currentItem.price.toString(), currency_code: 'TWD' } }]
-                        });
-                    },
-                    onApprove: async (data, actions) => {
-                        await actions.order.capture();
-                        btnContainer.innerHTML = '<div class="text-center font-bold text-green-600 py-10">付款成功！</div>';
-                        await fetch(`${BASE_URL}/api/gas`, { method: 'POST', body: JSON.stringify({ id: currentItem.id }) });
-                        setTimeout(() => location.reload(), 2000);
-                    },
-                    onError: (err) => {
-                        console.error("Render Error:", err);
-                        btnContainer.innerHTML = `<div class="text-red-500 text-[10px] text-center">支付載入失敗：${err.message}</div>`;
-                    }
-                });
-
             } catch (err) {
-                console.error("Checkout Flow Error:", err);
-                // 終極解決方案：如果 v6 組件徹底報錯，嘗試調用 v6 的底層會話
-                btnContainer.innerHTML = `<div class="text-red-500 text-[10px] text-center">無法初始化支付環境，請確認 Sandbox 設定。</div>`;
+                console.error("結帳錯誤:", err);
+                btnContainer.innerHTML = `<div class="text-red-500 text-[10px] text-center p-4">支付載入失敗：${err.message}</div>`;
             }
+        }
+
+        async function onApproveAction(data, actions) {
+            const btnContainer = document.getElementById('paypal-button-container');
+            await actions.order.capture();
+            btnContainer.innerHTML = '<div class="text-center font-bold text-green-600 py-10">付款成功！</div>';
+            await fetch(`${BASE_URL}/api/gas`, { method: 'POST', body: JSON.stringify({ id: currentItem.id }) });
+            setTimeout(() => location.reload(), 2000);
         }
 
         function closeModal() { document.getElementById('payment-modal').classList.remove('active'); }
