@@ -3,118 +3,79 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>paypal串接測試</title>
+    <title>質感選物 | SDK v6 穩定版</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- 引入 SDK v6 核心 -->
+    <script src="https://www.sandbox.paypal.com/web-sdk/v6/core"></script>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700&display=swap" rel="stylesheet">
     <style>
         body { font-family: 'Noto Sans TC', sans-serif; background-color: #F7F8FA; color: #41474D; }
-        .bg-cool-gray { background-color: #E1E4E8; }
-        .bg-woven-blue { background-color: #A9B4BC; }
-        .product-card { background-color: #E1E4E8; transition: all 0.2s; }
-        .product-card:active { transform: scale(0.98); }
-        .btn-buy { background-color: #A9B4BC; color: #F7F8FA; transition: all 0.2s; }
-        .btn-buy:hover { background-color: #41474D; }
-        
-        /* 修正後的 Modal 樣式 */
-        #payment-modal {
-            display: none; /* 預設隱藏 */
-            position: fixed;
-            inset: 0;
-            background-color: rgba(65, 71, 77, 0.7);
-            z-index: 100;
-            backdrop-filter: blur(4px);
-            align-items: center; /* 居中對齊 */
-            justify-content: center;
-            padding: 16px;
-            overflow-y: auto; /* 允許外層捲動 */
-        }
+        .product-card { background-color: #E1E4E8; border-radius: 2rem; padding: 1.25rem; }
+        #payment-modal { display: none; position: fixed; inset: 0; background-color: rgba(65, 71, 77, 0.7); z-index: 100; backdrop-filter: blur(8px); align-items: center; justify-content: center; padding: 16px; }
         #payment-modal.active { display: flex; }
-        
-        .modal-content {
-            background-color: #F7F8FA;
-            width: 100%;
-            max-width: 400px;
-            border-radius: 24px;
-            padding: 32px;
-            position: relative;
-            margin-top: auto; /* 手機端自動靠下 */
-            margin-bottom: auto;
-            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
-            max-height: 90vh; /* 限制最高 90% 視窗高度 */
-            overflow-y: auto; /* 內部內容過長可滑動 */
-        }
-        ::-webkit-scrollbar { width: 0px; }
+        .modal-content { background-color: #F7F8FA; width: 100%; max-width: 400px; border-radius: 32px; padding: 40px; }
     </style>
 </head>
-<body class="min-h-screen">
+<body>
 
-    <header class="sticky top-0 z-50 bg-[#F7F8FA]/90 backdrop-blur-md border-b border-[#E1E4E8]">
-        <div class="max-w-md mx-auto px-6 h-16 flex items-center justify-between">
-            <div class="flex items-center space-x-3">
-                <div class="w-8 h-8 bg-woven-blue rounded-full flex items-center justify-center">
-                    <i data-lucide="credit-card" class="w-4 h-4 text-[#F7F8FA]"></i>
-                </div>
-                <h1 class="text-sm font-bold tracking-widest">paypal串接測試</h1>
-            </div>
-        </div>
+    <header class="p-6 max-w-md mx-auto flex justify-between items-center">
+        <h1 class="text-xl font-bold tracking-tight">paypal串接測試</h1>
+        <div id="sdk-status" class="text-[10px] px-2 py-1 bg-amber-100 text-amber-600 rounded-full font-bold uppercase">SDK Initializing</div>
     </header>
 
-    <main class="max-w-md mx-auto px-4 pt-10 pb-20">
-        <div class="px-2 mb-8">
-            <h2 class="text-2xl font-bold tracking-tight">商品一覽</h2>
-            <div class="w-8 h-1 bg-woven-blue mt-2 rounded-full"></div>
-        </div>
-        <div id="product-container" class="grid grid-cols-2 gap-4">
-            <div class="animate-pulse bg-cool-gray rounded-[2rem] h-64"></div>
-            <div class="animate-pulse bg-cool-gray rounded-[2rem] h-64"></div>
-        </div>
+    <main class="max-w-md mx-auto px-4 pb-20">
+        <div id="product-container" class="grid grid-cols-2 gap-4"></div>
     </main>
 
-    <!-- 修正後的 Modal 結構 -->
     <div id="payment-modal" onclick="if(event.target === this) closeModal()">
         <div class="modal-content" onclick="event.stopPropagation()">
-            <div class="w-12 h-1 bg-cool-gray rounded-full mx-auto mb-6"></div>
-            <div id="order-summary" class="text-left mb-6 space-y-4"></div>
-            <div id="paypal-button-container" class="w-full"></div>
-            <button onclick="closeModal()" class="w-full mt-6 py-2 text-xs text-rock-gray/40 uppercase tracking-widest font-bold">
-                取消返回
-            </button>
+            <div id="order-summary" class="mb-8 text-center">
+                <h3 class="text-xl font-bold" id="order-title"></h3>
+                <p class="text-3xl font-black mt-2" id="order-price"></p>
+            </div>
+            
+            <!-- 支付按鈕容器 -->
+            <div id="paypal-button-container" class="min-h-[250px] flex flex-col gap-3"></div>
+            
+            <button onclick="closeModal()" class="w-full mt-8 py-2 text-xs font-bold opacity-30">取消</button>
         </div>
     </div>
 
     <script>
-        let GAS_URL = ""; 
+        let BASE_URL = ""; 
         let products = [];
-        let config = {};
-        let currentItem = null;
-        let isPayPalLoaded = false;
+        let paypalInstance = null;
 
         async function initStore() {
             try {
                 const configResp = await fetch('site-config.json');
                 const localConfig = await configResp.json();
-                GAS_URL = localConfig.gas_url;
+                BASE_URL = localConfig.gas_url.replace(/\/+$/, "");
 
-                const response = await fetch(GAS_URL);
+                const response = await fetch(`${BASE_URL}/api/gas`);
                 const data = await response.json();
-                products = data.products;
-                config = data.config;
-
+                products = Array.isArray(data) ? data : (data.products || []);
                 renderProducts(products);
-                if (config.paypal_client_id) loadPayPalSDK(config.paypal_client_id);
-            } catch (error) {
-                console.error(error);
-            }
-        }
 
-        function loadPayPalSDK(clientId) {
-            if (document.getElementById('paypal-sdk')) return;
-            const script = document.createElement('script');
-            script.id = 'paypal-sdk';
-            script.src = `https://www.paypal.com/sdk/js?client-id=${clientId}&currency=TWD&disable-funding=credit,card`;
-            script.onload = () => { isPayPalLoaded = true; };
-            document.head.appendChild(script);
+                const tokenResp = await fetch(`${BASE_URL}/api/token`);
+                const tokenData = await tokenResp.json();
+                
+                // 初始化 SDK v6
+                paypalInstance = await window.paypal.createInstance({
+                    clientToken: tokenData.clientToken,
+                    components: ["paypal-payments", "googlepay-payments", "applepay-payments", "fastlane"],
+                    currency: "TWD"
+                });
+
+                document.getElementById('sdk-status').innerText = "SDK Ready";
+                document.getElementById('sdk-status').className = "text-[10px] px-2 py-1 bg-green-100 text-green-600 rounded-full font-bold uppercase";
+                document.querySelectorAll('.buy-btn').forEach(btn => btn.disabled = false);
+
+            } catch (error) {
+                console.error("SDK 載入失敗:", error);
+                document.getElementById('sdk-status').innerText = "SDK Error";
+            }
         }
 
         function renderProducts(items) {
@@ -122,64 +83,78 @@
             container.innerHTML = '';
             items.forEach(item => {
                 if(item.status !== 'active') return;
-                const card = document.createElement('div');
-                card.className = "product-card rounded-[2rem] p-4 flex flex-col border border-white/20";
-                card.innerHTML = `
-                    <div class="aspect-square bg-[#F7F8FA]/60 rounded-2xl flex items-center justify-center mb-4 overflow-hidden">
-                        ${item.images ? `<img src="${item.images}" class="w-full h-full object-cover">` : `<i data-lucide="package" class="w-8 h-8 text-rock-gray/10"></i>`}
-                    </div>
-                    <div class="flex-grow px-1">
-                        <p class="text-sm font-bold mb-3 h-10 overflow-hidden line-clamp-2">${item.name}</p>
-                        <div class="flex items-end justify-between mb-4">
-                            <span class="text-base font-black">NT$ ${item.price}</span>
-                        </div>
-                    </div>
-                    <button onclick="openCheckout('${item.id}')" class="w-full py-3 btn-buy text-[10px] font-bold rounded-xl uppercase tracking-widest shadow-sm">立即購買</button>
-                `;
-                container.appendChild(card);
+                container.innerHTML += `
+                    <div class="product-card flex flex-col">
+                        <p class="text-sm font-bold mb-1 truncate">${item.name}</p>
+                        <p class="text-lg font-black mb-4">NT$ ${item.price}</p>
+                        <button onclick="openCheckout('${item.id}')" disabled class="buy-btn w-full py-3 bg-[#A9B4BC] text-white text-[10px] font-bold rounded-xl uppercase">立即購買</button>
+                    </div>`;
             });
             lucide.createIcons();
         }
 
-        function openCheckout(id) {
-            if (!isPayPalLoaded) { alert("PayPal 載入中..."); return; }
-            currentItem = products.find(p => String(p.id) === String(id));
+        async function openCheckout(id) {
+            if (!paypalInstance) return;
+            const currentItem = products.find(p => String(p.id) === String(id));
+            document.getElementById('order-title').innerText = currentItem.name;
+            document.getElementById('order-price').innerText = `NT$ ${currentItem.price}`;
+            document.getElementById('payment-modal').classList.add('active');
             
-            document.getElementById('order-summary').innerHTML = `
-                <div class="border-b border-cool-gray pb-4">
-                    <p class="text-[10px] opacity-40 uppercase tracking-widest">訂單項目</p>
-                    <h4 class="text-lg font-bold">${currentItem.name}</h4>
-                </div>
-                <div class="flex justify-between items-end">
-                    <span class="text-xs opacity-50 uppercase tracking-widest">應付總額</span>
-                    <span class="text-2xl font-black">NT$ ${currentItem.price}</span>
-                </div>
-            `;
-            
-            const modal = document.getElementById('payment-modal');
-            modal.classList.add('active');
-            document.body.style.overflow = 'hidden'; // 鎖定背景捲動
-            
-            document.getElementById('paypal-button-container').innerHTML = '';
-            paypal.Buttons({
-                style: { layout: 'vertical', color: 'black', shape: 'rect', label: 'paypal' },
-                createOrder: (data, actions) => {
-                    return actions.order.create({ purchase_units: [{ amount: { value: currentItem.price.toString(), currency_code: 'TWD' } }] });
-                },
-                onApprove: async (data, actions) => {
-                    await actions.order.capture();
-                    document.getElementById('paypal-button-container').innerHTML = '<div class="py-10 text-center font-bold">支付成功，正在更新...</div>';
-                    await fetch(GAS_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify({ id: currentItem.id }) });
-                    location.reload();
+            const btnContainer = document.getElementById('paypal-button-container');
+            btnContainer.innerHTML = '<div class="text-center py-10 opacity-30 text-xs italic">正在載入安全支付組件...</div>';
+
+            try {
+                // 重點修正：根據 SDK 提供的可用方法動態渲染
+                // 在 SDK v6 中，如果 paypalPayments() 不可用，改用對應的組件加載器
+                
+                let paymentComponent;
+                
+                if (typeof paypalInstance.paypalPayments === 'function') {
+                    // 高級整合模式 (PPCP)
+                    paymentComponent = await paypalInstance.paypalPayments();
+                } else if (typeof paypalInstance.createPayPalOneTimePaymentSession === 'function') {
+                    // 標準整合模式 (大部分 Sandbox 預設)
+                    // v6 的 Standalone 按鈕渲染方式
+                    paymentComponent = await paypalInstance.paypalPayments(); 
                 }
-            }).render('#paypal-button-container');
+
+                btnContainer.innerHTML = '';
+                
+                // 渲染主支付按鈕
+                await paymentComponent.render('#paypal-button-container', {
+                    createOrder: (data, actions) => {
+                        return actions.order.create({
+                            purchase_units: [{ amount: { value: currentItem.price.toString(), currency_code: 'TWD' } }]
+                        });
+                    },
+                    onApprove: async (data, actions) => {
+                        await actions.order.capture();
+                        btnContainer.innerHTML = '<p class="text-center font-bold text-green-600">完成付款！</p>';
+                        await fetch(`${BASE_URL}/api/gas`, { method: 'POST', body: JSON.stringify({ id: currentItem.id }) });
+                        location.reload();
+                    }
+                });
+
+                // 如果環境支援，額外嘗試渲染 Google Pay 或 Apple Pay
+                if (typeof paypalInstance.googlepayPayments === 'function') {
+                    const gpay = await paypalInstance.googlepayPayments();
+                    const isEligible = await gpay.isEligible();
+                    if (isEligible) {
+                        const gpDiv = document.createElement('div');
+                        gpDiv.id = 'googlepay-btn';
+                        btnContainer.appendChild(gpDiv);
+                        await gpay.render('#googlepay-btn');
+                    }
+                }
+
+            } catch (err) {
+                console.error("渲染錯誤:", err);
+                // 終極備案：如果 v6 組件渲染徹底失敗，提示使用者
+                btnContainer.innerHTML = `<p class="text-red-500 text-[10px] text-center">支付組件載入錯誤，請確認瀏覽器環境或嘗試關閉廣告阻擋器。<br>${err.message}</p>`;
+            }
         }
 
-        function closeModal() {
-            document.getElementById('payment-modal').classList.remove('active');
-            document.body.style.overflow = ''; // 解除鎖定
-        }
-
+        function closeModal() { document.getElementById('payment-modal').classList.remove('active'); }
         window.onload = initStore;
     </script>
 </body>
